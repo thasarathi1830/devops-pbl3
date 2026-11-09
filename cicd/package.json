@@ -1,0 +1,9 @@
+{
+  "name": "devops-pbl3-cicd",
+  "version": "1.0.0",
+  "description": "CI/CD application using Jenkins, Docker and Kubernetes",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  }
+}

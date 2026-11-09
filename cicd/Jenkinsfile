@@ -1,0 +1,62 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'devops-pbl3'
+        K8S_DEPLOYMENT = 'cicd-app'
+        K8S_CONTAINER = 'cicd-app'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )]) {
+                        env.IMAGE = "${DOCKERHUB_USER}/${IMAGE_NAME}:${BUILD_NUMBER}"
+                        sh 'docker build -t "$IMAGE" ./cicd'
+                    }
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKERHUB_USER',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )]) {
+                    sh '''
+                        echo "$DOCKERHUB_TOKEN" | docker login \
+                            -u "$DOCKERHUB_USER" --password-stdin
+                        docker push "$IMAGE"
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                    kubectl apply -f cicd/deployment.yaml
+                    kubectl apply -f cicd/service.yaml
+                    kubectl set image deployment/$K8S_DEPLOYMENT \
+                        $K8S_CONTAINER=$IMAGE
+                    kubectl rollout status deployment/$K8S_DEPLOYMENT \
+                        --timeout=180s
+                '''
+            }
+        }
+    }
+}
