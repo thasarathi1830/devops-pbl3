@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-green
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bluegreen
+      color: green
+  template:
+    metadata:
+      labels:
+        app: bluegreen
+        color: green
+    spec:
+      containers:
+      - name: app
+        image: thasarathi1830/bluegreen-app:v1
+        ports:
+        - containerPort: 3000
+        env:
+        - name: COLOR
+          value: "green"
+        - name: VERSION
+          value: "v2"
