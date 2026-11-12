@@ -1,0 +1,80 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'healthcare-api'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Secret Scan - Gitleaks') {
+            steps {
+                sh 'gitleaks detect --source healthcare --no-git -v'
+            }
+        }
+
+        stage('Dependency Audit - npm') {
+            steps {
+                dir('healthcare') {
+                    sh 'npm audit --audit-level=high'
+                }
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )]) {
+                        env.IMAGE = "${DOCKERHUB_USER}/${IMAGE_NAME}:${BUILD_NUMBER}"
+                        sh 'docker build -t "$IMAGE" ./healthcare'
+                    }
+                }
+            }
+        }
+
+        stage('Image Scan - Trivy') {
+            steps {
+                sh 'trivy image --severity CRITICAL --exit-code 1 --ignore-unfixed --skip-version-check "$IMAGE"'
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKERHUB_USER',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )]) {
+                    sh '''
+                        echo "$DOCKERHUB_TOKEN" | docker login \
+                            -u "$DOCKERHUB_USER" --password-stdin
+                        docker push "$IMAGE"
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Hardened') {
+            steps {
+                sh '''
+                    kubectl apply -f healthcare/service.yaml
+                    kubectl apply -f healthcare/deployment.yaml
+                    kubectl set image deployment/healthcare-api \
+                        healthcare-api=$IMAGE
+                    kubectl rollout status deployment/healthcare-api \
+                        --timeout=180s
+                '''
+            }
+        }
+    }
+}
